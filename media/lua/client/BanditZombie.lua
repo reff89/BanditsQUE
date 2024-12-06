@@ -19,7 +19,9 @@ BanditZombie.CacheLightB = BanditZombie.CacheLightB or {}
 BanditZombie.LastSize = 0
 
 -- rebuids cache
-BanditZombie.Update = function(numberTicks)
+local UpdateZombieCache = function(numberTicks)
+    if isServer() then return end
+    -- ts = getTimestampMs()
     -- if not numberTicks % 4 == 1 then return end
     
     -- adaptive pefrormance
@@ -27,47 +29,77 @@ BanditZombie.Update = function(numberTicks)
     local skip = 4
     if numberTicks % skip ~= 0 then return end
 
+    -- local ts = getTimestampMs()
     local cell = getCell()
     local zombieList = cell:getZombieList()
+    local zombieListSize = zombieList:size()
 
-    -- reset all cache
-    BanditZombie.Cache = {}
-    BanditZombie.CacheLight = {}
-    BanditZombie.CacheLightB = {}
-    BanditZombie.CacheLightZ = {}
-    BanditZombie.LastSize = zombieList:size()
+    -- limit zombie map to player surrondings, helps performance
+    -- local mr = 40
+    local mr = math.ceil(100 - (zombieListSize / 4))
+    if mr < 60 then mr = 60 end
+    -- print ("MR: " .. mr)
+    local player = getPlayer()
+    local px = player:getX()
+    local py = player:getY()
 
-    for i=0, zombieList:size()-1 do
+    -- prepare local cache vars
+    local cache = {}
+    local cacheLight = {}
+    local cacheLightB = {}
+    local cacheLightZ = {}
+
+    for i = 0, zombieListSize - 1 do
+        
         local zombie = zombieList:get(i)
-        if zombie:isAlive() then
-            local id = BanditUtils.GetCharacterID(zombie)
-            BanditZombie.Cache[id] = zombie
-            
+        local id = BanditUtils.GetCharacterID(zombie)
+
+        cache[id] = zombie
+        
+        local zx = zombie:getX()
+        local zy = zombie:getY()
+        local zz = zombie:getZ()
+        
+        if math.abs(px - zx) < mr and math.abs(py - zy) < mr then
             local light = {}
             light.id = id
-            light.isBandit = zombie:getVariableBoolean("Bandit")
-            light.x = zombie:getX()
-            light.y = zombie:getY()
-            light.z = zombie:getZ()
+            light.x = zx
+            light.y = zy
+            light.z = zz
             light.brain = BanditBrain.Get(zombie)
-            BanditZombie.CacheLight[id] = light
 
-            
-            if light.isBandit then
-                BanditZombie.CacheLightB[id] = light
+            if zombie:getVariableBoolean("Bandit")  then
+                light.isBandit = true
+                cacheLightB[id] = light
                 -- zombies in hitreaction state are not processed by onzombieupdate
                 -- so we need to make them shut their zombie sound here too
+                -- logically this does not fit here, should be a separate process
+                -- but it's here due to performance optimization to avoid additional iteration
+                -- over zombieList
                 
                 local asn = zombie:getActionStateName()
-                if asn == "hitreaction" or asn == "hitreaction-hit" then
+                if asn == "hitreaction" or asn == "hitreaction-hit" or asn == "climbfence" or asn == "climbwindow" then
                     zombie:getEmitter():stopSoundByName("MaleZombieCombined")
                     zombie:getEmitter():stopSoundByName("FemaleZombieCombined")
                 end
-             else
-                BanditZombie.CacheLightZ[id] = light
+            else
+                light.isBandit = false
+                cacheLightZ[id] = light
             end
+
+            cacheLight[id] = light
         end
+
     end
+
+    -- recreate global cache vars with new findings
+    BanditZombie.Cache = cache
+    BanditZombie.CacheLight = cacheLight
+    BanditZombie.CacheLightB = cacheLightB
+    BanditZombie.CacheLightZ = cacheLightZ
+    BanditZombie.LastSize = zombieListSize
+
+    -- print ("BZ:" .. (getTimestampMs() - ts))
 end 
 
 -- returns IsoZombie by id
@@ -98,4 +130,4 @@ BanditZombie.GetAllCnt = function()
     return BanditZombie.LastSize
 end
 
-Events.OnTick.Add(BanditZombie.Update)
+Events.OnTick.Add(UpdateZombieCache)

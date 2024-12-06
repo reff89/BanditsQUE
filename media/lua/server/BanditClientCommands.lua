@@ -30,13 +30,30 @@ BanditServer.Commands.PostUpdate = function(player, args)
     gmd.Posts[id] = args
 end
 
+BanditServer.Commands.BaseUpdate = function(player, args)
+    local gmd = GetBanditModData()
+    if not (args.x and args.y) then return end
+
+    local id = args.x .. "-" .. args.y
+    gmd.Bases[id] = args
+end
+
 BanditServer.Commands.BanditRemove  = function(player, args)
     local gmd = GetBanditModData()
     local id = args.id
     if gmd.Queue[id] then
         gmd.Queue[id] = nil
-        print ("[INFO] Bandit removed: " .. id)
+        -- print ("[INFO] Bandit removed: " .. id)
     end
+end
+
+BanditServer.Commands.BanditFlush  = function(player, args)
+    local gmd = GetBanditModData()
+    gmd.Queue = {}
+    gmd.VisitedBuildings = {}
+    gmd.Posts = {}
+    gmd.Bases = {}
+    print ("[INFO] All bandits removed!!!")
 end
 
 BanditServer.Commands.BanditUpdatePart = function(player, args)
@@ -47,13 +64,17 @@ BanditServer.Commands.BanditUpdatePart = function(player, args)
         local brain = gmd.Queue[id]
         for k, v in pairs(args) do
             brain[k] = v
-            print ("[INFO] Bandit sync id: " .. id .. " key: " .. k)
+            -- print ("[INFO] Bandit sync id: " .. id .. " key: " .. k)
         end
 
         gmd.Queue[id] = brain
 
         sendServerCommand('Commands', 'UpdateBanditPart', args)
     end
+end
+
+BanditServer.Commands.AddEffect = function(player, args)
+    sendServerCommand('BanditEffects', 'Add', args)
 end
 
 BanditServer.Commands.SpawnGroup = function(player, event)
@@ -93,6 +114,9 @@ BanditServer.Commands.SpawnGroup = function(player, event)
             -- unique bandit id based on outfit
             brain.id = id
 
+            -- time of birth
+            brain.born = getGameTime():getWorldAgeHours()
+
             -- the player that spawned the bandit becomes his master, 
             -- this plays a role in particular programs like Companion
             brain.master = BanditUtils.GetCharacterID(player)
@@ -107,6 +131,11 @@ BanditServer.Commands.SpawnGroup = function(player, event)
             brain.clan = bandit.clan
             brain.eatBody = bandit.eatBody
             brain.accuracyBoost = bandit.accuracyBoost
+
+            -- hair style
+            if bandit.hairStyle then
+                brain.hairStyle = bandit.hairStyle
+            end
 
             -- the AI program to follow at start
             brain.program = {}
@@ -129,6 +158,7 @@ BanditServer.Commands.SpawnGroup = function(player, event)
             brain.stationary = false
             brain.sleeping = false
             brain.aiming = false
+            brain.moving = false
             brain.endurance = 1.00
             brain.speech = 0.00
             brain.sound = 0.00
@@ -147,7 +177,7 @@ BanditServer.Commands.SpawnGroup = function(player, event)
             -- not used
             brain.world = {}
 
-            print ("[INFO] Bandit " .. brain.fullname .. "(".. id .. ") from clan " .. bandit.clan .. " in outfit " .. bandit.outfit .. " has joined the game.")
+            -- print ("[INFO] Bandit " .. brain.fullname .. "(".. id .. ") from clan " .. bandit.clan .. " in outfit " .. bandit.outfit .. " has joined the game.")
             gmd.Queue[id] = brain
         end
     end
@@ -215,13 +245,49 @@ BanditServer.Commands.Barricade = function(player, args)
     end
 end
 
-BanditServer.Commands.ToggleDoor = function(player, args)
+BanditServer.Commands.OpenDoor = function(player, args)
     local sq = getCell():getGridSquare(args.x, args.y, args.z)
     if sq and args.index >= 0 and args.index < sq:getObjects():size() then
         local object = sq:getObjects():get(args.index)
         if instanceof(object, "IsoDoor") or (instanceof(object, 'IsoThumpable') and object:isDoor() == true) then
             if not object:IsOpen() then
                 object:ToggleDoorSilent()
+            end
+        end
+    end
+end
+
+BanditServer.Commands.CloseDoor = function(player, args)
+    local sq = getCell():getGridSquare(args.x, args.y, args.z)
+    if sq and args.index >= 0 and args.index < sq:getObjects():size() then
+        local object = sq:getObjects():get(args.index)
+        if instanceof(object, "IsoDoor") or (instanceof(object, 'IsoThumpable') and object:isDoor() == true) then
+            if object:IsOpen() then
+                object:ToggleDoorSilent()
+            end
+        end
+    end
+end
+
+BanditServer.Commands.LockDoor = function(player, args)
+    local sq = getCell():getGridSquare(args.x, args.y, args.z)
+    if sq and args.index >= 0 and args.index < sq:getObjects():size() then
+        local object = sq:getObjects():get(args.index)
+        if instanceof(object, "IsoDoor") or (instanceof(object, 'IsoThumpable') and object:isDoor() == true) then
+            if not object:isLockedByKey() then
+                object:setLockedByKey(true)
+            end
+        end
+    end
+end
+
+BanditServer.Commands.UnlockDoor = function(player, args)
+    local sq = getCell():getGridSquare(args.x, args.y, args.z)
+    if sq and args.index >= 0 and args.index < sq:getObjects():size() then
+        local object = sq:getObjects():get(args.index)
+        if instanceof(object, "IsoDoor") or (instanceof(object, 'IsoThumpable') and object:isDoor() == true) then
+            if object:isLockedByKey() then
+                object:setLockedByKey(false)
             end
         end
     end

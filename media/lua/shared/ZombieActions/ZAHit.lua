@@ -5,7 +5,7 @@ local function Hit(attacker, item, victim)
     local tempAttacker = BanditUtils.CloneIsoPlayer(attacker)
 
     -- Calculate distance between attacker and victim
-    local dist = math.sqrt(math.pow(tempAttacker:getX() - victim:getX(), 2) + math.pow(tempAttacker:getY() - victim:getY(), 2))
+    local dist = BanditUtils.DistTo(victim:getX(), victim:getY(), tempAttacker:getX(), tempAttacker:getY())
     local range = item:getMaxRange()
     if dist < range + 0.1 then
         BanditPlayer.WakeEveryone()
@@ -28,7 +28,6 @@ local function Hit(attacker, item, victim)
                 victim:setBumpFall(true)
                 victim:setBumpFallType("pushedBehind")
             else
-                victim:setAttackedBy(attacker)
                 victim:setHitFromBehind(attacker:isBehind(victim))
 
                 if instanceof(victim, "IsoZombie") then
@@ -37,10 +36,11 @@ local function Hit(attacker, item, victim)
                 end
 
                 victim:Hit(item, tempAttacker, 3, false, 1, false)
+                victim:setAttackedBy(attacker)
                 local bodyDamage = victim:getBodyDamage()
                 if bodyDamage then
                     local health = bodyDamage:getOverallBodyHealth()
-                    health = health + 8
+                    health = health + 12
                     if health > 100 then health = 100 end
                     bodyDamage:setOverallBodyHealth(health)
                 end
@@ -66,7 +66,7 @@ ZombieActions.Hit.onStart = function(bandit, task)
     local anim 
     local sound
 
-    local enemy = BanditZombie.GetInstanceById(task.eid) or BanditPlayer.getPlayerById(task.eid)
+    local enemy = BanditZombie.GetInstanceById(task.eid) or BanditPlayer.GetPlayerById(task.eid)
     if not enemy then return true end
     
     local prone = enemy:isProne() or enemy:getActionStateName() == "onground" or enemy:getActionStateName() == "sitonground" or enemy:getActionStateName() == "climbfence" or enemy:getBumpFallType() == "pushedFront" or enemy:getBumpFallType() == "pushedBehind"
@@ -90,7 +90,9 @@ ZombieActions.Hit.onStart = function(bandit, task)
     else
 
         local attacks
-        if meleeItemType == WeaponType.twohanded then
+        if task.weapon == "Base.BareHands" or meleeItemType == WeaponType.barehand then
+            attacks = {"AttackBareHands1", "AttackBareHands2", "AttackBareHands3", "AttackBareHands4", "AttackBareHands5", "AttackBareHands6"}
+        elseif meleeItemType == WeaponType.twohanded then
             attacks = {"Attack2H1", "Attack2H2", "Attack2H3", "Attack2H4"}
         -- elseif meleeItemType == WeaponType.heavy then
         --    attacks = {"Attack2HHeavy1", "Attack2HHeavy2"}
@@ -127,11 +129,13 @@ end
 
 ZombieActions.Hit.onWorking = function(bandit, task)
     bandit:faceLocation(task.x, task.y)
-    
     local bumpType = bandit:getBumpType()
     if bumpType ~= task.anim then return false end
 
-    if task.time == 50 then
+    if not task.hit and task.time <= 50 then
+        task.hit = true
+        Bandit.UpdateTask(bandit, task)
+
         local item = InventoryItemFactory.CreateItem(task.weapon)
         local enemy = BanditZombie.GetInstanceById(task.eid)
         if enemy then 
@@ -144,7 +148,7 @@ ZombieActions.Hit.onWorking = function(bandit, task)
         end
 
         if Bandit.IsHostile(bandit) then
-            local player = BanditPlayer.getPlayerById(task.eid)
+            local player = BanditPlayer.GetPlayerById(task.eid)
             if player then
                 local eid = BanditUtils.GetCharacterID(player)
                 if player:isAlive() and eid == task.eid then
@@ -153,6 +157,9 @@ ZombieActions.Hit.onWorking = function(bandit, task)
                 end
             end
         end
+
+
+
         return false
 
     end

@@ -51,10 +51,8 @@ function BanditMenu.BroadcastTV (player, square)
 end
 
 function BanditMenu.TestAction (player, square, zombie)
-    -- zombie:setBumpType("trippingFromSprint")
-    -- zombie:setBumpType("trippingFromSprint")
 
-    local task = {action="Sleep", anim="Sleep", time=400}
+    local task = {action="Time", anim="DanceHipHop3", time=400}
     Bandit.AddTask(zombie, task)
 end
 
@@ -84,17 +82,10 @@ function BanditMenu.SetHumanVisuals (player, zombie)
     end
 end
 
-function BanditMenu.VehicleTest (player, square)
-    -- vehicle:tryStartEngine(true)
-    -- vehicle:engineDoStartingSuccess()
-    -- vehicle:engineDoRunning()
-    -- vehicle:setRegulator(true)
-    -- vehicle:setRegulatorSpeed(10)
+function BanditMenu.VehicleTest (player, square, vehicle)
+    -- local driver = BanditUtils.CloneIsoPlayer(player)
 
-    --[[local vx = zombie:getForwardDirection():getX()
-    local vy = zombie:getForwardDirection():getY()
-    local forwardVector = Vector3f.new(vx, vy, 0)
-    zombie:enterVehicle(vehicle, 0, forwardVector)]]
+    BWOVehicles.Register(vehicle)
 
     --[[
     local square = getCell():getGridSquare(player:getX(), player:getY(), player:getZ())
@@ -151,14 +142,25 @@ end
 function BanditMenu.ShowBrain (player, square, zombie)
     local gmd = GetBanditModData()
 
+    local bcnt = 0
+    for k, v in pairs(gmd.Queue) do
+        bcnt = bcnt + 1
+    end
+
     -- add breakpoint below to see data
     local brain = BanditBrain.Get(zombie)
+    local id = BanditUtils.GetCharacterID(zombie)
     local daysPassed = BanditScheduler.DaysSinceApo()
     local isUseless = zombie:isUseless()
     local isBandit = zombie:getVariableBoolean("Bandit")
     local walktype = zombie:getVariableString("zombieWalkType")
     local walktype2 = zombie:getVariableString("BanditWalkType")
     local isBanditTarget = zombie:getVariableString("BanditTarget")
+    local walktype2 = zombie:getVariableString("BanditWalkType")
+    local primary = zombie:getVariableString("BanditPrimary")
+    local primaryType = zombie:getVariableString("BanditPrimaryType")
+    local secondary = zombie:getVariableString("BanditSecondary")
+    local outfit = zombie:getOutfitName()
     local ans = zombie:getActionStateName()
     local under = zombie:isUnderVehicle()
     local veh = zombie:getVehicle()
@@ -168,24 +170,22 @@ function BanditMenu.ShowBrain (player, square, zombie)
     local animator = zombie:getAdvancedAnimator()
     -- local astate = zombie:getAnimationDebug()
     local waveData = BanditScheduler.GetWaveDataForDay(daysPassed)
+    local baseData = BanditPlayerBase.data
     
 end
 
-function BanditMenu.RemoveAllBandits(player)
-    -- local args = {a=1}
-    -- sendClientCommand(getPlayer(), 'Commands', 'BanditClear', args)
-    local gmd = GetBanditModData()
-    local cnt = 0
-    for _, q in pairs(gmd.Queue) do
-        cnt = cnt + 1
-    end
-    print ("REGISTERED BANDITS: " .. cnt)
+function BanditMenu.BanditFlush(player)
+    local args = {a=1}
+    sendClientCommand(player, 'Commands', 'BanditFlush', args)
+end
 
-    for _, q in pairs(gmd.Queue) do
-        if #q.tasks > 10 then
-            print (q.id .. ": " .. #q.tasks)
-        end
-    end
+function BanditMenu.ResetGenerator (player, generator)
+    generator:setFuel(20)
+    generator:setCondition(50)
+end
+
+function BanditMenu.RegenerateBase (player)
+    BanditPlayerBase.Regenerate(player)
 end
 
 function BanditMenu.SwitchProgram(player, bandit, program)
@@ -213,6 +213,10 @@ function BanditMenu.WorldContextMenuPre(playerID, context, worldobjects, test)
     local square = clickedSquare
     local player = getSpecificPlayer(playerID)
     local zombie = square:getZombie()
+    local generator = square:getGenerator()
+    
+    -- local chunkRegion = IsoRegions.getChunkRegion(square:getX(), square:getY(), square:getZ())
+    -- local enclosed = chunkRegion:getIsEnclosed()
     
     -- Player options
     if zombie and zombie:getVariableBoolean("Bandit") and not Bandit.IsHostile(zombie) then
@@ -252,6 +256,8 @@ function BanditMenu.WorldContextMenuPre(playerID, context, worldobjects, test)
         for i=1, 2 do
             spawnBaseMenu:addOption("Base " .. tostring(i), player, BanditMenu.SpawnBase, square, i)
         end
+
+        context:addOption("Remove All Bandits", player, BanditMenu.BanditFlush, square)
     end
     
     -- Debug options
@@ -265,15 +271,23 @@ function BanditMenu.WorldContextMenuPre(playerID, context, worldobjects, test)
             print ("this zombie dir is: " .. zombie:getDirectionAngle())
             context:addOption("[DGB] Show Brain", player, BanditMenu.ShowBrain, square, zombie)
             context:addOption("[DGB] Test action", player, BanditMenu.TestAction, square, zombie)
-            context:addOption("[DGB] Set Human Visuals", player, BanditMenu.SetHumanVisuals, zombie)
+            -- context:addOption("[DGB] Set Human Visuals", player, BanditMenu.SetHumanVisuals, zombie)
             context:addOption("[DGB] Zombify", player, BanditMenu.Zombify, zombie)
+          
         end
 
-        context:addOption("[DGB] Bandit Diagnostics", player, BanditMenu.RemoveAllBandits)
-        context:addOption("[DGB] Clear Space", player, BanditMenu.ClearSpace, square)
+        -- context:addOption("[DGB] Bandit UI", player, ShowCustomizationUI)
+
+        -- context:addOption("[DGB] Bandit Diagnostics", player, BanditMenu.RemoveAllBandits)
+        -- context:addOption("[DGB] Clear Space", player, BanditMenu.ClearSpace, square)
+        -- context:addOption("[DGB] Regenerate base", player, BanditMenu.RegenerateBase)
         -- context:addOption("[DGB] Raise Defences", player, BanditMenu.RaiseDefences, square)
         -- context:addOption("[DGB] Emergency TC Broadcast", player, BanditMenu.BroadcastTV, square)
-        -- context:addOption("[DGB] Give me wheels", player, BanditMenu.VehicleTest, square)
+        
+        -- if generator then
+        --    context:addOption("[DGB] Reset generator", player, BanditMenu.ResetGenerator, generator)
+        -- end
+
     end
 end
 

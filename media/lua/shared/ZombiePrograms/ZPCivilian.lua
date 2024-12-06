@@ -58,7 +58,7 @@ ZombiePrograms.Civilian.Follow = function(bandit)
     -- update walktype
     local walkType = "Run"
     local endurance = 0.00
-    local dist = math.sqrt(math.pow(bandit:getX() - master:getX(), 2) + math.pow(bandit:getY() - master:getY(), 2))
+    local dist = BanditUtils.DistTo(bandit:getX(), bandit:getY(), master:getX(), master:getY())
 
     local health = bandit:getHealth()
     if health < 0.4 then
@@ -97,8 +97,8 @@ ZombiePrograms.Civilian.Follow = function(bandit)
         local dx = master:getX() - lx
         local dy = master:getY() - ly
         local dz = master:getZ()
-        local dxf = ((id % 10) - 5) / 10
-        local dyf = ((id % 11) - 5) / 10
+        local dxf = ((math.abs(id) % 10) - 5) / 10
+        local dyf = ((math.abs(id) % 11) - 5) / 10
         table.insert(tasks, BanditUtils.GetMoveTask(endurance, dx+dxf, dy+dyf, dz, walkType, dist))
     end
 

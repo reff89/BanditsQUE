@@ -4,113 +4,39 @@ local function predicateAll(item)
 	return true
 end
 
+-- this is useful for catching player actions that have no predefined triggers
+-- and convert them to actual triggers
 
--- this analyzes actions performed by players that will be useful as data for friendlies actions
 LuaEventManager.AddEvent("OnTimedActionPerform")
-
-BanditActionInterceptor.getItemCategory = function(item)
-    local category = item:getDisplayCategory()
-    if category == "Food" then
-        local canSpoil = item:getOffAgeMax() < 1000
-        if canSpoil then
-            category = "FoodFresh"
-        end
-    end
-    return category
-end
-
-BanditActionInterceptor.GetContainerCategories = function(container, newItem)
-    
-    -- return categories of items already present in the container
-    local categories = {}
-    local items = ArrayList.new()
-    container:getAllEvalRecurse(predicateAll, items)
-    for i=0, items:size()-1 do
-        local item = items:get(i)
-        local category = BanditActionInterceptor.getItemCategory(item)
-        
-        categories[category] = true
-    end
-
-    -- add category of the item being added
-    categories[BanditActionInterceptor.getItemCategory(newItem)] = true
-
-    return categories
-end
 
 BanditActionInterceptor.Main = function(data)
     local character = data.character
-    local jobType = data.jobType
+    if not character then return end
 
-    -- not implemented yet
-    if false and jobType then
-        if jobType:startsWith(getText("IGUI_PuttingInContainer")) then
-            print ("load container")
-            local destContainer = data.destContainer
-            local object = destContainer:getParent()
+    local action = data.action:getMetaType()
+    if not action then return end
 
-            if object then
-                local item = data.item
+    -- action for registering player base
+    if action == "ISInventoryTransferAction" then
+        local container = data.destContainer
+        if not container then return end
 
-                local post = {}
-                post.x = object:getX()
-                post.y = object:getY()
-                post.z = object:getZ()
-                post.type = "container-to"
-                post.data = {}
-                post.data.categories = BanditActionInterceptor.GetContainerCategories(destContainer, item)
+        local containerType = container:getType()
+        
+        if containerType == "fridge" or containerType == "freezer" then
+            print ("base created")
+            local object = container:getParent()
+            local square = object:getSquare()
+            local building = square:getBuilding()
+            local buildingDef = building:getDef()
+            local x = buildingDef:getX()
+            local y = buildingDef:getY()
+            local x2 = buildingDef:getX2()
+            local y2 = buildingDef:getY2()
 
-                BanditPost.Update(character, post)
-            end
-        elseif jobType:startsWith(getText("IGUI_TakingFromContainer")) then
-            print ("take container")
-            local srcContainer = data.srcContainer
-            local object = srcContainer:getParent()
-
-            if object then
-                local item = data.item
-                local category = BanditActionInterceptor.getItemCategory(item)
-
-                local cell = character:getCell()
-                local building = character:getBuilding()
-                local def = building:getDef()
-                local roomDefs = def:getRooms()
-                for i=0, roomDefs:size() - 1 do
-                    local roomDef = roomDefs:get(i)
-                    for x=roomDef:getX(), roomDef:getX2() do
-                        for y=roomDef:getY(), roomDef:getY2() do
-                            local square = cell:getGridSquare(x, y, roomDef:getZ())
-                            if square then
-                                local objects = square:getObjects()
-                                for i=0, objects:size() - 1 do
-                                    local object = objects:get(i)
-                                    local container = object:getContainer()
-                                    if container and not container:isEmpty() then
-
-                                        local x = object:getX()
-                                        local y = object:getY()
-                                        local z = object:getZ()
-
-                                        local post = BanditPost.Get(x, y, z, "container-from")
-                                        if not post then
-                                            post = {}
-                                            post.x = x
-                                            post.y = y
-                                            post.z = z
-                                            post.type = "container-from"
-                                            post.data = {}
-                                            post.data.categories = {}
-                                        end
-                                        post.data.categories[category] = true
-
-                                        BanditPost.Update(character, post)
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
+            local args = {x=x, y=y, x2=x2, y2=y2}
+            sendClientCommand(character, 'Commands', 'BaseUpdate', args)
+            -- BanditPlayerBase.RegisterBase(buildingDef)
         end
     end
 end

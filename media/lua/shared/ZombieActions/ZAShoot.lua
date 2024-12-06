@@ -387,7 +387,7 @@ local function Hit(shooter, item, victim)
     local tempShooter = BanditUtils.CloneIsoPlayer(shooter)
 
     -- Calculate the distance between the shooter and the victim
-    local dist = math.sqrt(math.pow(tempShooter:getX() - victim:getX(), 2) + math.pow(tempShooter:getY() - victim:getY(), 2))
+    local dist = BanditUtils.DistTo(victim:getX(), victim:getY(), tempShooter:getX(), tempShooter:getY())
 
     -- Determine accuracy based on SandboxVars and shooter clan
     local brainShooter = BanditBrain.Get(shooter)
@@ -424,7 +424,6 @@ local function Hit(shooter, item, victim)
                 victim:setBumpFall(true)
                 victim:setBumpFallType("pushedBehind")
             else
-                victim:setAttackedBy(shooter)
                 victim:setHitFromBehind(shooter:isBehind(victim))
 
                 if instanceof(victim, "IsoZombie") then
@@ -433,6 +432,7 @@ local function Hit(shooter, item, victim)
                 end
 
                 victim:Hit(item, tempShooter, 6, false, 1, false)
+                victim:setAttackedBy(shooter)
                 local bodyDamage = victim:getBodyDamage()
                 if bodyDamage then
                     local health = bodyDamage:getOverallBodyHealth()
@@ -623,9 +623,10 @@ end
 
 ZombieActions.Shoot.onWorking = function(zombie, task)
     zombie:faceLocationF(task.x, task.y)
-
-    local bumpType = zombie:getBumpType()
-    if bumpType ~= task.anim then return false end
+    -- print ("SHOOT: " .. task.time)
+    -- local bumpType = zombie:getBumpType()
+    -- if bumpType ~= task.anim then return false end
+    zombie:setBumpType(task.anim)
 
     return false
 end

@@ -27,18 +27,24 @@ ZombiePrograms.Companion.Prepare = function(bandit)
     local cm = world:getClimateManager()
     local dls = cm:getDayLightStrength()
 
-    Bandit.ForceStationary(bandit, false)
-    Bandit.SetWeapons(bandit, Bandit.GetWeapons(bandit))
-    
+    local weapons = Bandit.GetWeapons(bandit)
     local primary = Bandit.GetBestWeapon(bandit)
+
+    Bandit.ForceStationary(bandit, false)
+    Bandit.SetWeapons(bandit, weapons)
 
     local secondary
     if SandboxVars.Bandits.General_CarryTorches and dls < 0.3 then
         secondary = "Base.HandTorch"
     end
 
-    local task = {action="Equip", itemPrimary=primary, itemSecondary=secondary}
-    table.insert(tasks, task)
+    if weapons.secondary.name then
+        local task1 = {action="Unequip", time=100, itemPrimary=weapons.secondary.name}
+        table.insert(tasks, task1)
+    end
+
+    local task2 = {action="Equip", itemPrimary=primary, itemSecondary=secondary}
+    table.insert(tasks, task2)
 
     return {status=true, next="Follow", tasks=tasks}
 end
@@ -70,7 +76,7 @@ ZombiePrograms.Companion.Follow = function(bandit)
     local walkType = "Walk"
     local endurance = 0.00
     local vehicle = master:getVehicle()
-    local dist = math.sqrt(math.pow(bandit:getX() - master:getX(), 2) + math.pow(bandit:getY() - master:getY(), 2))
+    local dist = BanditUtils.DistTo(bandit:getX(), bandit:getY(), master:getX(), master:getY())
 
     if master:isRunning() or master:isSprinting() or vehicle or dist > 10 then
         walkType = "Run"
@@ -133,20 +139,34 @@ ZombiePrograms.Companion.Follow = function(bandit)
     -- however, if the enemy is close, the companion should engage
     -- but only if player is not too far, kind of a proactive defense.
     if dist < 20 then
+        local enemy
         local closestZombie = BanditUtils.GetClosestZombieLocation(bandit)
         local closestBandit = BanditUtils.GetClosestEnemyBanditLocation(bandit)
         local closestEnemy = closestZombie
 
         if closestBandit.dist < closestZombie.dist then 
-            closestEnemy = closestBandit 
+            closestEnemy = closestBandit
+            enemy = BanditZombie.GetInstanceById(closestEnemy.id)
         end
 
         if closestEnemy.dist < 8 then
             -- We are trying to save the player, so the friendly should act with high motivation
             -- that translates to running pace (even despite limping) and minimal endurance loss.
+
+            local closeSlow = true
+            if enemy then
+                local weapon = enemy:getPrimaryHandItem()
+                if weapon and weapon:IsWeapon() then
+                    local weaponType = WeaponType.getWeaponType(weapon)
+                    if weaponType == WeaponType.firearm or weaponType == WeaponType.handgun then
+                        closeSlow = false
+                    end
+                end
+            end
+
             walkType = "Run"
             endurance = -0.01
-            table.insert(tasks, BanditUtils.GetMoveTask(endurance, closestEnemy.x, closestEnemy.y, closestEnemy.z, walkType, closestEnemy.dist))
+            table.insert(tasks, BanditUtils.GetMoveTask(endurance, closestEnemy.x, closestEnemy.y, closestEnemy.z, walkType, closestEnemy.dist, closeSlow))
             return {status=true, next="Follow", tasks=tasks}
         end
     end
@@ -226,14 +246,14 @@ ZombiePrograms.Companion.Follow = function(bandit)
     -- If there is a guardpost in the vicinity, take it.
     local guardpost = BanditPost.GetClosestFree(bandit, "guard", 40)
     if guardpost then
-        table.insert(tasks, BanditUtils.GetMoveTask(endurance, guardpost.x, guardpost.y, guardpost.z, walkType, dist))
+        table.insert(tasks, BanditUtils.GetMoveTask(endurance, guardpost.x, guardpost.y, guardpost.z, walkType, dist, false))
         return {status=true, next="Follow", tasks=tasks}
     end
 
     -- companion fishing
     local gameTime = getGameTime()
     local hour = gameTime:getHour()
-    if (hour >= 4 and hour < 12) or (hour >= 18 and hour < 22) then
+    if (hour >= 4 and hour < 6) or (hour >= 18 and hour < 21) then
         local vectors = {}
         table.insert(vectors, {x=0, y=-1}) --12
         table.insert(vectors, {x=1, y=-1}) -- 1.30
@@ -268,17 +288,17 @@ ZombiePrograms.Companion.Follow = function(bandit)
         if wx and wy then
             local asquare = AdjacentFreeTileFinder.Find(wsquare, bandit)
             if asquare then
-                local tx = asquare:getX()
-                local ty = asquare:getY()
+                local tx = asquare:getX() + 0.5
+                local ty = asquare:getY() + 0.5
 
-                local dist = math.sqrt(math.pow(tx - bx, 2) + math.pow(ty - by, 2))
-                if dist < 1.2 then
+                local dist = BanditUtils.DistTo(bx, by, tx, ty)
+                if dist < 1.0 then
                     print ("should fish")
                     local task = {action="Fishing", time=1000, x=wx, y=wy}
                     table.insert(tasks, task)
                     return {status=true, next="Follow", tasks=tasks}
                 else
-                    table.insert(tasks, BanditUtils.GetMoveTask(endurance, tx, ty, 0, "Run", dist))
+                    table.insert(tasks, BanditUtils.GetMoveTask(endurance, tx, ty, 0, "Run", dist, false))
                     return {status=true, next="Follow", tasks=tasks}
                 end
             end
@@ -328,6 +348,129 @@ ZombiePrograms.Companion.Follow = function(bandit)
         end
     end
 
+    -- companion homebase tasks
+
+    -- companion generator maintenance
+    -- FIXME: change to NOT
+    if getWorld():isHydroPowerOn() then 
+        local generator = BanditPlayerBase.GetGenerator(bandit)
+        if generator then
+            local condition = generator:getCondition()
+            if condition < 60 or (condition <=95 and not generator:isActivated()) then
+                local subTasks = BanditPrograms.Generator.Repair(bandit, generator)
+                if #subTasks > 0 then
+                    for _, subTask in pairs(subTasks) do
+                        table.insert(tasks, subTask)
+                    end
+                    return {status=true, next="Follow", tasks=tasks}
+                end
+            end
+
+            local fuel = generator:getFuel()
+            if fuel < 40 then
+                local subTasks = BanditPrograms.Generator.Refuel(bandit, generator)
+                if #subTasks > 0 then
+                    for _, subTask in pairs(subTasks) do
+                        table.insert(tasks, subTask)
+                    end
+                    return {status=true, next="Follow", tasks=tasks}
+                end
+            end
+        end
+    end
+
+    -- gardening
+    -- TODO: remove weed
+
+    -- farming
+    if not cm:isRaining() then
+        local plant = BanditPlayerBase.GetFarm(bandit)
+        if plant and plant.waterNeeded > 0 and plant.waterLvl < 100 then
+            local subTasks = BanditPrograms.Farm.Water(bandit, plant)
+            if #subTasks > 0 then
+                for _, subTask in pairs(subTasks) do
+                    table.insert(tasks, subTask)
+                end
+                return {status=true, next="Follow", tasks=tasks}
+            end
+        end
+    end
+
+    -- unload collected food to fridge
+    local subTasks
+    subTasks = BanditPrograms.Misc.ReturnFood(bandit)
+    if #subTasks > 0 then
+        for _, subTask in pairs(subTasks) do
+            table.insert(tasks, subTask)
+        end
+        return {status=true, next="Follow", tasks=tasks}
+    end
+
+    -- self
+    subTasks = BanditPrograms.Self.Wash(bandit)
+    if #subTasks > 0 then
+        for _, subTask in pairs(subTasks) do
+            table.insert(tasks, subTask)
+        end
+        return {status=true, next="Follow", tasks=tasks}
+    end
+    
+
+    -- housekeeping
+    subTasks = BanditPrograms.Housekeeping.FillGraves(bandit)
+    if #subTasks > 0 then
+        for _, subTask in pairs(subTasks) do
+            table.insert(tasks, subTask)
+        end
+        return {status=true, next="Follow", tasks=tasks}
+    end
+
+    subTasks = BanditPrograms.Housekeeping.RemoveCorpses(bandit)
+    if #subTasks > 0 then
+        for _, subTask in pairs(subTasks) do
+            table.insert(tasks, subTask)
+        end
+        return {status=true, next="Follow", tasks=tasks}
+    end
+
+    subTasks = BanditPrograms.Housekeeping.RemoveTrash(bandit)
+    if #subTasks > 0 then
+        for _, subTask in pairs(subTasks) do
+            table.insert(tasks, subTask)
+        end
+        return {status=true, next="Follow", tasks=tasks}
+    end
+
+    subTasks = BanditPrograms.Housekeeping.CleanBlood(bandit)
+    if #subTasks > 0 then
+        for _, subTask in pairs(subTasks) do
+            table.insert(tasks, subTask)
+        end
+        return {status=true, next="Follow", tasks=tasks}
+    end
+
+    -- ideas: read book, 
+    --[[
+    ram database
+        - fridge locations
+        - contents of all containers in the base
+            - updated on each container item add/remove
+            - container existance verified periodically
+        - base coordinates
+            -- updated once on base creation - when items put to fridge
+        - lua objects [farms, barrels]
+            -- updated periodically in certain range from base
+        - generator locations
+            -- updated on player start / stop / connect / disconnect
+        - world items
+            -- updated when walking on square
+
+
+    , heal crops, fix car, chop tree, saw logs, 
+    
+    itemless:
+    move rotten to composter, sleep, use toilet, eat something, drink something]]
+
     -- follow the player.
     local minDist = 2
     if dist > minDist then
@@ -340,9 +483,9 @@ ZombiePrograms.Companion.Follow = function(bandit)
         local dx = master:getX() - lx
         local dy = master:getY() - ly
         local dz = master:getZ()
-        local dxf = ((id % 10) - 5) / 10
-        local dyf = ((id % 11) - 5) / 10
-        table.insert(tasks, BanditUtils.GetMoveTask(endurance, dx+dxf, dy+dyf, dz, walkType, dist))
+        local dxf = ((math.abs(id) % 10) - 5) / 10
+        local dyf = ((math.abs(id) % 11) - 5) / 10
+        table.insert(tasks, BanditUtils.GetMoveTask(endurance, dx+dxf, dy+dyf, dz, walkType, dist, false))
         return {status=true, next="Follow", tasks=tasks}
     end
 
